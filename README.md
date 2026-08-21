@@ -2,7 +2,7 @@
 
 AeroLab is an ESP32-based environmental and motion sensing station built with PlatformIO. It combines multiple sensors into a single firmware with a web dashboard, buzzer/LED alerts, and night-mode behavior.
 
-![AeroLab hardware](docs/photos/IMG_9370.jpg)
+![AeroLab hardware](docs/photos/hero.jpg)
 
 ## Features
 

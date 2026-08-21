@@ -9,9 +9,15 @@
 [![Dashboard](https://img.shields.io/badge/dashboard-WebSocket%20%2B%20Three.js-00d4ff)](#-live-telemetry-dashboard)
 [![License](https://img.shields.io/badge/license-add--your--own-lightgrey)](#license)
 
-![AeroLab hardware](docs/photos/hero.jpg)
+**System overview:**
 
-*The breadboard sensor rig — and the live dashboard it drives:*
+![AeroLab Pro block diagram](docs/photos/block-diagram.png)
+
+**The breadboard sensor rig:**
+
+<img src="docs/photos/hero.jpg" alt="AeroLab hardware" width="480">
+
+**...driving the live browser dashboard:**
 
 ![AeroLab Pro dashboard simulation view](docs/photos/dashboard-simulation.png)
 
@@ -34,6 +40,8 @@ This lets you answer the questions that actually determine a drone's reliability
 - How does the whole stack behave together, not just in a datasheet?
 
 Once that's validated cheaply on a breadboard, the exact same sensor layout and thresholds can be carried over to a custom PCB and then to the actual flight build — so the expensive part only happens once, with confidence. That's the plan this project is working towards: **breadboard simulation → PCB → drone**, in that order, to keep the cost of learning low.
+
+The block diagram above shows how it fits together: all eight sensors feed the ESP32, which runs sensor fusion and threshold logic, then fans out to on-board feedback (OLED/LED/buzzer) *and* to the browser dashboard over WebSocket at 25 Hz.
 
 ---
 

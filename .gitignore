@@ -1,0 +1,12 @@
+# PlatformIO
+.pio/
+.vscode/
+*.code-workspace
+
+# Local secrets — never commit real WiFi credentials
+data/config.json
+
+# OS/editor cruft
+.DS_Store
+Thumbs.db
+*.swp

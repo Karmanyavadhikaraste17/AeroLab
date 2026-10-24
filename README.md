@@ -1,130 +1,180 @@
+# 🛰️ AeroLab: Cyber-Physical Digital-Twin & Sampled-Data Control Testbed
+
 <div align="center">
 
-# 🛰️ AeroLab Pro
+[![Platform](https://img.shields.io/badge/Platform-ESP32--D0WDQ6-00629B?style=for-the-badge&logo=espressif)](https://www.espressif.com/)
+[![Control](https://img.shields.io/badge/Control-Sampled--Data%20Discrete%20LQR-008080?style=for-the-badge)](control_simulation.m)
+[![Diagnosis](https://img.shields.io/badge/Diagnosis-Two--Sided%20CUSUM%20SPRT-D9534F?style=for-the-badge)](gnc_core.h)
+[![Visualization](https://img.shields.io/badge/Cockpit-Three.js%20WebGL%20%2B%20WebSerial-5CB85C?style=for-the-badge)](dashboard.html)
+[![Paper](https://img.shields.io/badge/Paper-IEEE%20Access%20Manuscript-orange?style=for-the-badge)](deliverables/paper/AeroLab_IEEE_Style_Manuscript.pdf)
 
-### A breadboard-based Hardware-in-the-Loop simulator for drone sensor design — before you build the drone.
+<br/>
 
-[![Platform](https://img.shields.io/badge/platform-ESP32-blue)](https://www.espressif.com/en/products/socs/esp32)
-[![Build](https://img.shields.io/badge/build-PlatformIO-orange)](https://platformio.org/)
-[![Dashboard](https://img.shields.io/badge/dashboard-WebSocket%20%2B%20Three.js-00d4ff)](#-live-telemetry-dashboard)
-[![License](https://img.shields.io/badge/license-add--your--own-lightgrey)](#license)
+<img src="docs/photos/hero.jpg" alt="AeroLab Hardware Testbed" width="540">
 
-**System overview:**
-
-![AeroLab Pro block diagram](docs/photos/block-diagram.png)
-
-**The breadboard sensor rig:**
-
-<img src="docs/photos/hero.jpg" alt="AeroLab hardware" width="480">
-
-**...driving the live browser dashboard:**
-
-![AeroLab Pro dashboard simulation view](docs/photos/dashboard-simulation.png)
+*The AeroLab Cyber-Physical Hardware Rig: DOIT ESP32 DevKit V1, dual ultrasonic sensors, SG90 servo, MPU-6050 6-DOF IMU, DHT11, MQ gas sensors, LDR optical channel, and OLED HUD.*
 
 </div>
 
 ---
 
-## Why AeroLab Pro exists
+## 📖 Overview
 
-Building and testing a real drone is expensive, and it's risky — a mis-tuned sensor threshold or a bad mounting angle can end in a crashed frame, a broken flight controller, and a burnt weekend. That cost is a real barrier for students and hobbyists who just want to learn *how* flight sensors behave before committing to an airframe.
+**AeroLab** transfers the digital-twin fault-diagnosis framework of Araújo et al. (*IEEE Access*, Vol. 13, Aug. 2025) onto an accessible, high-performance embedded flight-surface testbed powered by a dual-core ESP32 microcontroller. 
 
-**The idea behind AeroLab is simple: simulate the drone's sensory environment on the bench first.**
-
-Instead of straight away buying motors, an ESC, a frame, and a flight controller, AeroLab reproduces a drone's entire sensor stack — IMU, altitude, obstacle ranging, environment sensors — on a breadboard driven by a single ESP32. You physically tilt, rotate, and move the board to mimic real flight dynamics (roll/pitch/yaw, altitude change, an obstacle coming into range), and watch exactly how each sensor responds, in real time, on a live 3D dashboard.
-
-This lets you answer the questions that actually determine a drone's reliability *before* a single propeller spins:
-- Where should each sensor physically sit on the frame?
-- What alert/failsafe thresholds (proximity, tilt, temperature, gas) actually make sense?
-- Which sensor is noisy, which is slow, and which needs filtering (e.g. Kalman on the IMU)?
-- How does the whole stack behave together, not just in a datasheet?
-
-Once that's validated cheaply on a breadboard, the exact same sensor layout and thresholds can be carried over to a custom PCB and then to the actual flight build — so the expensive part only happens once, with confidence. That's the plan this project is working towards: **breadboard simulation → PCB → drone**, in that order, to keep the cost of learning low.
-
-The block diagram above shows how it fits together: all eight sensors feed the ESP32, which runs sensor fusion and threshold logic, then fans out to on-board feedback (OLED/LED/buzzer) *and* to the browser dashboard over WebSocket at 25 Hz.
+Unlike purely software simulations or closed commercial flight controllers, AeroLab provides **source-to-hardware transparency across the entire cyber-physical stack**:
+1. **Mathematical Synthesis:** Continuous-time flight-surface model $G(s) = \frac{\omega_n^2}{s^2 + 2\zeta\omega_n s + \omega_n^2}$ ($\omega_n = 89\text{ rad/s}, \zeta = 0.45$), exact Zero-Order-Hold (ZOH) discretization at $20\text{ Hz}$ ($T_s = 50\text{ ms}$), discrete Linear Quadratic Regulator (DLQR) with feedforward prefilter $\bar{N}$, and a discrete pole-placed Luenberger observer.
+2. **Embedded Firmware (`main.cpp`):** Multi-rate FreeRTOS architecture propagating state dynamics in $1\text{ ms}$ substeps, 20 Hz telemetry streaming, acoustic cross-talk elimination ($15\text{ ms}$ inter-ping blanking window), and Conical Azimuth Radar Seeking ($\pm 3.5^\circ$ dither tracking).
+3. **Sequential Fault Detection (`gnc_core.h`):** Two-sided Cumulative Sum (CUSUM) Sequential Probability Ratio Test ($k = 0.020, h = 0.060$) accumulating persistent model-twin innovation residuals.
+4. **Multi-Platform Scopes & Cockpit:** 
+   - Interactive 3D WebGL Glass Cockpit (`dashboard.html` & `dashboard_analytics.html`)
+   - Standalone 4-axis real-time MATLAB Scope (`matlab_realtime_scope.m`)
+   - Multi-threaded Python Scope (`python_realtime_scope.py`)
+   - Local Telemetry Bridge daemon (`matlab_bridge.py`) on port 8088.
 
 ---
 
-## 🖥️ Live Telemetry Dashboard
+## 🏛️ System Architecture & Data Provenance
 
-Every sensor reading streams over WiFi (WebSocket) to a browser-based "glass cockpit" — a live 3D drone model that mirrors the physical board's orientation, a Primary Flight Display with artificial horizon, a radar sweep map, and real-time alerts for every monitored parameter. *(See the preview at the top of this page.)*
-
-> The dashboard also runs in a self-contained **demo mode** with simulated data whenever no board is connected — so you can open `data/index.html` in a browser and see the full interface working, even without hardware.
+```
+                                      AeroLab Architecture & Data Flow
+                                      
+    +-------------------------------------------------------------------------------------------------+
+    |                                   PHYSICAL HARDWARE LAYER (ESP32)                               |
+    |                                                                                                 |
+    |  +--------------------+   +-----------------------+   +--------------------+                    |
+    |  |  Dual Ultrasonic   |   |   MPU-6050 6-DOF IMU  |   |   LDR / MQ / DHT   |                    |
+    |  |  (US1 + Servo US2) |   | (Attitude & Vibration)|   |   (Environmental)  |                    |
+    |  +---------+----------+   +-----------+-----------+   +---------+----------+                    |
+    |            |                          |                         |                               |
+    |            +--------------------+     |     +-------------------+                               |
+    |                                 v     v     v                                                   |
+    |                           [ 20 Hz FreeRTOS Control Loop ]                                       |
+    |                           - 15 ms Acoustic Blanking Gate                                        |
+    |                           - 2-Tick Proximity Debounce Filter                                    |
+    |                           - Conical Azimuth Radar Seeking (Mode 1)                              |
+    +-----------------------------------------+-------------------------------------------------------+
+                                              | 460,800 Baud JSON Packets
+                                              v
+    +-------------------------------------------------------------------------------------------------+
+    |                                TELEMETRY BRIDGE & LOCAL DAEMON                                  |
+    |                                                                                                 |
+    |   matlab_bridge.py (Port 8088)  <--->  Local Mutex Singleton & Win32 Window Focus Management     |
+    |   - GET /telemetry                     - POST /push (WebSerial relay)                           |
+    |   - POST /launch                       - POST /cmd (Mute, Snooze, Override)                     |
+    +-----------------+-------------------------------+-------------------------------+---------------+
+                      |                               |                               |
+                      v                               v                               v
+    +-------------------------------+   +---------------------------+   +-----------------------------+
+    |       3D WEB COCKPITS         |   |       MATLAB SCOPE        |   |        PYTHON SCOPE         |
+    |                               |   |                           |   |                             |
+    | - dashboard.html (Three.js)   |   | - matlab_realtime_scope.m |   | - python_realtime_scope.py  |
+    | - dashboard_analytics.html    |   | - 4-Axis Live Scope       |   | - Matplotlib FuncAnimation  |
+    | - 6-bay Scientific Scopes     |   | - Auto-Detects Bridge     |   | - Dual-Axis Residual/Attitude|
+    +-------------------------------+   +---------------------------+   +-----------------------------+
+```
 
 ---
 
-## What it simulates
+## 📊 Academic Deliverables & Verification
 
-| Drone system | Simulated using | Purpose |
-|---|---|---|
-| Attitude (roll / pitch / yaw) | MPU6050 IMU + Kalman filtering | Flight stability sensing |
-| Altitude & obstacle avoidance | 2× HC-SR04 ultrasonic (one on a servo for a 180° radar sweep) | Ranging & collision-avoidance logic |
-| Environmental health | BMP180 (pressure/altitude), DHT11 (temp/humidity), MQ FC-22 (gas/smoke) | Payload / airframe safety limits |
-| Ambient conditions | LDR + photodiode | Night-mode / light-based behavior |
-| Remote input | IR receiver (VS1838B) | Command & control testing |
-| Local feedback | OLED, 7-segment display, RGB LED, buzzer, servo | Standalone alerts without a laptop |
+The repository contains the complete academic publication package prepared for peer evaluation:
 
-## ✨ Features
+| Deliverable | Format | Description |
+| :--- | :---: | :--- |
+| **IEEE Access Manuscript** | [PDF](deliverables/paper/AeroLab_IEEE_Style_Manuscript.pdf) • [DOCX](deliverables/paper/AeroLab_IEEE_Style_Manuscript.docx) | Full publication-grade manuscript with 15 scholarly references, 4 core tables, and mathematical derivations. |
+| **Faculty Demo & Viva Guide** | [PDF](deliverables/faculty/AeroLab_Faculty_Demo_Guide_current.pdf) • [DOCX](deliverables/faculty/AeroLab_Faculty_Demo_Guide_current.docx) | Comprehensive examiner demonstration script, hardware pinout, viva Q&A, and quick-check runbook. |
+| **Simulation Figure Suite** | [PNG](results/figures/) | 6 canonical 300 DPI figures: Step Response Benchmark, Bode Stability, Root Locus, Digital Twin CUSUM, Observer Error, and 200-Plant Robustness Envelope. |
 
-- **Motion & orientation**: MPU6050 (accelerometer/gyroscope)
-- **Barometric pressure/altitude**: BMP180
-- **Temperature & humidity**: DHT11
-- **Gas sensing**: MQ FC-22
-- **Light sensing**: LDR + photodiode
-- **Distance sensing**: 2× HC-SR04 ultrasonic (fixed + servo-mounted radar sweep)
-- **Remote input**: IR receiver (VS1838B)
-- **Output**: OLED display, 7-segment display (74HC595), RGB LED, buzzer, servo
-- **Connectivity**: WiFi with WebSocket-based live data + `data/index.html` "glass cockpit" dashboard (Three.js 3D drone, PFD, radar sweep, live alerts)
-- **Configurable thresholds**: temperature, humidity, gas, proximity, and altitude alert limits — all editable without touching firmware
-- **Night mode**: automatically silences ultrasonic proximity beeps while keeping LED status active
+---
 
-## 🔌 Hardware / Wiring
+## 🔬 Benchmark Results
 
-Full pin-by-pin wiring notes are documented as comments at the top of [`src/main.cpp`](src/main.cpp), covering the I2C bus, DHT11, dual HC-SR04 sensors, servo, LDR, gas sensor, IR receiver, buzzer, RGB LED, and 7-segment display.
+### 1. Closed-Loop Step Response Comparison
+Benchmarking the discrete LQR controller against classical baselines:
+* **Open-Loop Plant:** $M_p = 20.5\%$, $t_p = 39.5\text{ ms}$, Steady-State Error $= 50.0\%$.
+* **Parallel PID Baseline:** Overshoot $= 79.0\%$, Settling Time $= 650\text{ ms}$, severe actuator windup ($u_{\max} = 4.82$).
+* **Discrete Saturated LQR ($T_s = 50\text{ ms}, u \in [0, 1]$):** **$0.00\%$ overshoot**, rise time $t_r = 100\text{ ms}$, settling time $t_s = 150\text{ ms}$, and strict control effort saturation clamp ($u = 1.000$).
 
-## 🚀 Getting Started
+### 2. Monte Carlo Fault Detection ($N = 200$ Runs)
+* **Nominal Baseline:** $0.0\%$ false alarms ($ARL_0 > 10^4$ steps).
+* **Sub-Threshold Step ($\Delta = 0.050$):** Fixed threshold misses 100% of faults; CUSUM achieves **100.0% detection** in $100\text{ ms}$ (2 samples).
+* **Slow Ramp Drift ($0.015/\text{s}$):** Fixed threshold takes $6.52\text{ s}$ ($\sigma = 0.15\text{ s}$); CUSUM detects in **$1.96\text{ s}$** ($\sigma = 0.06\text{ s}$, **$3.3\times$ faster**).
 
-This project uses [PlatformIO](https://platformio.org/).
+---
 
-1. Install PlatformIO (VS Code extension or CLI).
-2. Clone this repo and open it in PlatformIO.
-3. Copy the config template and fill in your own values:
-   ```bash
-   cp data/config.example.json data/config.json
-   ```
-   Then edit `data/config.json` with your WiFi SSID/password and alert thresholds (temperature limit, humidity limit, buzzer on/off, etc). **This file is gitignored — never commit real credentials.**
-4. Connect your ESP32 board, update `upload_port` / `monitor_port` in `platformio.ini` to match your system, and build/upload:
-   ```bash
-   pio run --target upload
-   pio run --target uploadfs   # uploads data/ (dashboard + config) to LittleFS
-   ```
-5. Open the serial monitor at 115200 baud, or connect to the device's WiFi-served dashboard at `http://<device-ip>/`.
+## ⚡ Quickstart Guide
 
-> Want to preview the dashboard without hardware? Just open `data/index.html` directly in a browser — it automatically falls back to demo mode with simulated telemetry.
-
-## 📁 Project Structure
-
-```
-src/            Firmware source (main.cpp)
-include/        Header files
-lib/            Project-specific libraries
-data/           Files uploaded to the ESP32 filesystem (dashboard, config template)
-test/           PlatformIO unit tests
-docs/           Abstract/writeup and reference photos
+### 1. Clone & Setup
+```bash
+git clone https://github.com/Karmanyavadhikaraste17/AeroLab.git
+cd AeroLab
 ```
 
-## 🗺️ Roadmap
+### 2. Firmware Compilation & Flashing
+```bash
+# Build release firmware using PlatformIO
+pio run -e esp32doit-devkit-v1
 
-- [x] Breadboard sensor cluster + firmware
-- [x] Live WebSocket telemetry + 3D dashboard
-- [ ] Move validated sensor layout to a custom PCB
-- [ ] Port thresholds/config to an actual flight controller build
-- [ ] Closed-loop testing on a physical airframe
+# Flash to ESP32 over USB
+pio run -e esp32doit-devkit-v1 -t upload
+```
 
-## 📄 Docs
+### 3. Run Host C++ Unit Tests
+```cmd
+# Runs zero-allocation CUSUM and discrete state-space unit tests
+test\run_msvc.bat
+```
 
-See [`docs/Abstracts-1.pdf`](docs/Abstracts-1.pdf) for the full project abstract/writeup.
+### 4. Launch Telemetry Bridge & Scopes
+```bash
+# Start the telemetry daemon on port 8088
+start_bridge.bat
 
-## License
+# Launch desktop real-time scopes
+launch_matlab_scope.bat   # MATLAB 4-axis scope
+launch_python_scope.bat   # Python matplotlib scope
+```
 
-Add a license of your choice (MIT is a common default for hobby hardware projects).
+### 5. Launch Cockpit Dashboard
+Open [`dashboard.html`](dashboard.html) in any modern browser (Chrome, Edge, Opera). Click **CONNECT SERIAL** to link directly to `COM14` at 460,800 baud or stream via the local bridge.
+
+---
+
+## 📁 Repository Map
+
+```
+AeroLab/
+├── deliverables/
+│   ├── paper/               # IEEE Access manuscript (DOCX, PDF, and high-res vector figures)
+│   └── faculty/             # Faculty demonstration guide and viva runbook
+├── results/
+│   ├── figures/             # 6 canonical MATLAB publication figures
+│   └── verification/        # Verification records, dashboard renders, scope test outputs
+├── research/
+│   └── references/          # Reference papers (Araújo et al. IEEE Access 2025) and executive brief
+├── src/
+│   └── main.cpp             # Canonical FreeRTOS 20 Hz firmware
+├── test/                    # Host C++ test suite and demo contract verifiers
+├── vendor/                  # Three.js WebGL dependencies
+├── control_simulation.m     # Master MATLAB simulation suite
+├── dashboard.html           # 3D WebGL glass cockpit HUD
+├── dashboard_analytics.html # 6-bay scientific analytics cockpit
+├── gnc_core.h               # Embedded CUSUM and LQR control library
+├── gnc_gains.h              # Auto-generated discrete matrices and gain vectors
+├── HARDWARE.md              # Electrical pinout, sensor wiring, and power budget
+├── matlab_bridge.py         # Multi-threaded serial/HTTP telemetry bridge
+├── matlab_realtime_scope.m  # 4-axis MATLAB real-time oscilloscope
+├── platformio.ini           # PlatformIO dual-environment configuration
+└── python_realtime_scope.py # Standalone Python oscilloscope
+```
+
+---
+
+## 📜 Authors & Academic Citation
+
+* **Primary Author:** Manav Sharma (Reg No: 24BEC0566)  
+* **Affiliation:** School of Electronics Engineering (SENSE), Vellore Institute of Technology (VIT), Vellore, India  
+* **Course:** Control Systems Engineering (BECE305P) Final Evaluation  
+* **Base Paper Reference:**  
+  > A. C. S. Araújo, C. B. M. Lima, and E. P. Godoy, *"A Digital Twin Approach to Smart Monitoring and Fault Diagnosis,"* **IEEE Access**, vol. 13, pp. 128450–128464, Aug. 2025. doi: [10.1109/ACCESS.2025.3601349](https://doi.org/10.1109/ACCESS.2025.3601349).
